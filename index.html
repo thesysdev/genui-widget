@@ -12,17 +12,15 @@
     />
 
     <script type="module">
-      import { createChat } from "https://cdn.jsdelivr.net/npm/genui-widget/dist/genui-widget.es.js";
+      import { createChat } from "./src/index.ts";
 
       const chat = createChat({
-        n8n: {
-          webhookUrl: "<YOUR_WEBHOOK_URL>",
-          enableStreaming: true,
-        },
+        langgraph: {},
+        n8n: {},
         agentName: "Test Bot",
         theme: { mode: "light" },
-        mode: "fullscreen", // Options: "fullscreen" (default) | "sidepanel"
-        storageType: "localstorage", // Options: "none" (default) | "localstorage"
+        mode: "sidepanel", // Options: "fullscreen" (default) | "sidepanel"
+        // storageType: "localstorage", // Options: "none" (default) | "localstorage"
         onSessionStart: (sessionId) => {
           console.log("Chat session started:", sessionId);
         },

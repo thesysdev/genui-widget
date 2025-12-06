@@ -1,7 +1,21 @@
 /**
  * Storage type for persisting chat data
  */
-export type StorageType = "none" | "localstorage";
+export type StorageType = "none" | "localstorage" | "langgraph";
+
+/**
+ * LangChain specific configuration
+ */
+export interface LangGraphConfig {
+  /**
+   * The LangGraph deployment URL to use
+   */
+  deploymentUrl: string;
+  /**
+   * The LangGraph assistant ID to use
+   */
+  assistantId: string;
+}
 
 /**
  * n8n/webhook specific configuration
@@ -34,9 +48,14 @@ export interface N8NConfig {
  */
 export interface ChatConfig {
   /**
+   * LangGraph configuration
+   */
+  langgraph?: LangGraphConfig;
+
+  /**
    * n8n webhook configuration
    */
-  n8n: N8NConfig;
+  n8n?: N8NConfig;
 
   /**
    * Callback fired when a session starts

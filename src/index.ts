@@ -11,10 +11,11 @@ import "@crayonai/react-ui/styles/index.css";
 import type {
   ChatConfig,
   ChatInstance,
+  LangGraphConfig,
   N8NConfig,
   WebhookMessage,
 } from "./types";
-import { createStorageAdapter } from "./storage";
+import { createStorageAdapter, LangGraphStorageAdapter } from "./storage";
 import type { StorageAdapter } from "./storage";
 import { log, logError } from "./utils/logger";
 import "./styles/widget.css";
@@ -29,6 +30,119 @@ function generateThreadTitle(message: string): string {
     return cleaned;
   }
   return cleaned.substring(0, maxLength) + "...";
+}
+
+async function callLanggraph(
+  langgraphConfig: LangGraphConfig,
+  sessionId: string,
+  prompt: string
+): Promise<Response> {
+  console.log("callLanggraph", langgraphConfig, sessionId, prompt);
+  const response = await fetch(
+    `${langgraphConfig.deploymentUrl}/threads/${sessionId}/runs/stream`,
+    {
+      method: "POST",
+      body: JSON.stringify({
+        assistant_id: langgraphConfig.assistantId,
+        input: {
+          messages: [
+            {
+              role: "human",
+              content: prompt,
+            },
+          ],
+        },
+        stream_mode: ["values", "messages-tuple", "custom"],
+        stream_subgraphs: true,
+        stream_resumable: true,
+      }),
+    }
+  );
+
+  if (!response.body) {
+    throw new Error("Response body is null");
+  }
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+
+  const stream = new ReadableStream({
+    async start(controller) {
+      let buffer = "";
+      let hasStreamedContent = false;
+
+      // Helper to extract content from various JSON formats
+      const extractContent = (data: { content?: string }[]): string | null => {
+        try {
+          return data[0].content || null;
+        } catch {
+          return null;
+        }
+      };
+
+      try {
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+
+          const chunk = decoder.decode(value, { stream: true });
+          buffer += chunk;
+          const lines = buffer.split("\n");
+
+          buffer = lines.pop() || "";
+
+          for (const line of lines) {
+            if (line.trim()) {
+              try {
+                console.log("line", line);
+                const data = JSON.parse(line.slice(6));
+                console.log("datap", data);
+                const content = extractContent(data);
+                if (content) {
+                  controller.enqueue(new TextEncoder().encode(content));
+                  hasStreamedContent = true;
+                }
+              } catch (e) {
+                logError("Failed to parse streaming line:", line, e);
+              }
+            }
+          }
+        }
+
+        // Process remaining buffer
+        if (buffer.trim()) {
+          try {
+            const data = JSON.parse(buffer);
+            const content = extractContent(data);
+            if (content) {
+              controller.enqueue(new TextEncoder().encode(content));
+              hasStreamedContent = true;
+            }
+          } catch (e) {
+            // Buffer might not be valid JSON - could be plain text
+            if (!hasStreamedContent) {
+              // If we haven't streamed anything, send buffer as-is
+              controller.enqueue(new TextEncoder().encode(buffer));
+            } else {
+              logError("Failed to parse final streaming data:", buffer, e);
+            }
+          }
+        }
+      } catch (error) {
+        logError("Streaming error:", error);
+        controller.error(error);
+      } finally {
+        controller.close();
+        reader.releaseLock();
+      }
+    },
+  });
+
+  return new Response(stream, {
+    headers: {
+      "Content-Type": "text/plain",
+    },
+  });
 }
 
 /**
@@ -199,9 +313,17 @@ function ChatWithPersistence({
       return await storage.getThreadList();
     },
     createThread: async (firstMessage: UserMessage) => {
-      const threadId = crypto.randomUUID();
       const title = generateThreadTitle(firstMessage.message || "New Chat");
 
+      // Use LangGraph API to create thread if using LangGraph storage
+      if (storage instanceof LangGraphStorageAdapter) {
+        const thread = await storage.createThread(title);
+        // Note: First message will be sent via processMessage, not saved here
+        return thread;
+      }
+
+      // Default: create thread locally
+      const threadId = crypto.randomUUID();
       const thread: Thread = {
         threadId,
         title,
@@ -265,18 +387,36 @@ function ChatWithPersistence({
         config.onSessionStart?.(threadId);
       }
 
-      // Save user messages
-      await storage.saveThread(threadId, messages);
-      log("[Storage] Saved user messages");
+      const isLangGraph = storage instanceof LangGraphStorageAdapter;
+
+      // Save user messages (skip for LangGraph - messages are persisted via runs)
+      if (!isLangGraph) {
+        await storage.saveThread(threadId, messages);
+        log("[Storage] Saved user messages");
+      }
 
       // Get prompt
       const lastMessage = messages[messages.length - 1];
       const prompt = lastMessage?.content || "";
 
-      // Call webhook
-      const response = await callWebhook(config.n8n, threadId, prompt);
+      // Call webhook or LangGraph
+      let response: Response;
+      if (config.n8n?.webhookUrl) {
+        response = await callWebhook(config.n8n, threadId, prompt);
+      } else if (config.langgraph?.deploymentUrl) {
+        response = await callLanggraph(config.langgraph, threadId, prompt);
+      } else {
+        console.log("No webhook or langgraph configuration provided");
+        throw new Error("No webhook or langgraph configuration provided");
+      }
 
-      // Wrap stream to save assistant message when complete
+      // For LangGraph, messages are automatically persisted by the run
+      // Just return the response directly
+      if (isLangGraph) {
+        return response;
+      }
+
+      // For other storage types, wrap stream to save assistant message when complete
       if (response.body) {
         const reader = response.body.getReader();
         const decoder = new TextDecoder();
@@ -355,9 +495,11 @@ function ChatWithPersistence({
  */
 export function createChat(config: ChatConfig): ChatInstance {
   // Validate required config
-  if (!config.n8n.webhookUrl) {
-    throw new Error("n8n.webhookUrl is required");
+  if (!config.n8n && !config.langgraph) {
+    throw new Error("n8n or langgraph configuration is required");
   }
+
+  console.log("config", config);
 
   // Set debug logging flag at window level
   if (!window.__THESYS_CHAT__) {
@@ -367,8 +509,10 @@ export function createChat(config: ChatConfig): ChatInstance {
     config.enableDebugLogging || false;
 
   // Create storage adapter
-  const storageType = config.storageType || "none";
-  const storage = createStorageAdapter(storageType);
+  // Auto-select "langgraph" storage when langgraph config is present (unless explicitly set)
+  const storageType =
+    config.storageType || (config.langgraph ? "langgraph" : "none");
+  const storage = createStorageAdapter(storageType, config.langgraph);
 
   // Create container element
   const container = document.createElement("div");
