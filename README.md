@@ -1,7 +1,7 @@
 # Generative UI Widget
 
 An embeddable chat widget for building Generative UI applications.
-Add buttons, forms, and charts to your existing LangGraph agents and n8n workflows.
+Add buttons, forms, and charts to your existing LangGraph(/LangChain) agents and n8n workflows.
 
 [![Built with Thesys](https://thesys.dev/built-with-thesys-badge.svg)](https://thesys.dev)
 
@@ -19,7 +19,7 @@ Add buttons, forms, and charts to your existing LangGraph agents and n8n workflo
 
 ## Quick Start
 
-### Using LangGraph
+### Using LangGraph(/LangChain)
 
 ```html
 <link

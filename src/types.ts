@@ -4,7 +4,7 @@
 export type StorageType = "none" | "localstorage" | "langgraph";
 
 /**
- * LangChain specific configuration
+ * LangGraph specific configuration
  */
 export interface LangGraphConfig {
   /**
