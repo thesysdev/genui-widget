@@ -241,45 +241,7 @@ Return line-delimited JSON chunks:
 
 ### n8n
 
-1. **Create a Webhook Trigger**
-
-   - Add a Webhook node to your workflow
-   - Set it to accept POST requests
-   - Note your webhook URL
-
-2. **Access the Data**
-
-   - Message: `{{ $json.chatInput }}`
-   - Session ID: `{{ $json.sessionId }}`
-
-3. **Return a Response**
-
-   - Use "Respond to Webhook" node
-   - Return: `{ "output": "Your response" }`
-
-4. **Configure CORS**
-   - Enable Domain Allowlist in webhook settings
-   - Add your domain(s): `example.com`, `www.example.com`
-   - For local dev: `localhost`, `127.0.0.1`
-
-**Security Note:** The webhook URL is visible in the browser. Use n8n's Domain Allowlist to restrict access.
-
-### Make.com
-
-1. Create a scenario with a **Webhook** module
-2. Process `chatInput` and `sessionId`
-3. Add your logic (AI, database, etc.)
-4. Use **Webhook Response** to return `{ "output": "Your response" }`
-
-### Custom Webhook
-
-Your endpoint should:
-
-1. Accept POST requests with JSON body
-2. Parse `chatInput` and `sessionId`
-3. Return JSON: `{ "output": "Your response" }`
-
-For streaming, return line-delimited JSON chunks.
+Follow the instructions at [thesys.dev/n8n](https://thesys.dev/n8n) to quickly set up your n8n workflow.
 
 ## Configuration Reference
 
