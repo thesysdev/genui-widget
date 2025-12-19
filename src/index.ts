@@ -272,41 +272,53 @@ function ChatWithPersistence({
  * ```
  */
 export function createChat(config: ChatConfig): ChatInstance {
-  // Validate required config
-  if (!config.n8n && !config.langgraph) {
-    throw new Error("n8n or langgraph configuration is required");
-  }
-
-  log("[createChat] Initializing with config:", {
-    hasLanggraph: !!config.langgraph,
-    hasN8n: !!config.n8n,
-    storageType: config.storageType,
-  });
-
-  // Set debug logging flag at window level
+  // Set debug logging flag at window level (do this early so logging works)
   if (!window.__THESYS_CHAT__) {
     window.__THESYS_CHAT__ = {};
   }
   window.__THESYS_CHAT__.enableDebugLogging =
     config.enableDebugLogging || false;
 
-  // Create chat provider
-  const provider = createChatProvider(config);
-  log("[createChat] Created provider:", provider.name);
+  let provider: ChatProvider;
+  let storage: StorageAdapter;
+  let container: HTMLDivElement;
+  let root: ReturnType<typeof createRoot>;
 
-  // Create storage adapter
-  // Auto-select "langgraph" storage when langgraph config is present (unless explicitly set)
-  const storageType =
-    config.storageType || (config.langgraph ? "langgraph" : "none");
-  const storage = createStorageAdapter(storageType, config.langgraph);
+  try {
+    // Validate required config
+    if (!config.n8n && !config.langgraph) {
+      throw new Error("n8n or langgraph configuration is required");
+    }
 
-  // Create container element
-  const container = document.createElement("div");
-  container.id = "thesys-chat-root";
-  document.body.appendChild(container);
+    log("[createChat] Initializing with config:", {
+      hasLanggraph: !!config.langgraph,
+      hasN8n: !!config.n8n,
+      storageType: config.storageType,
+    });
 
-  // Create React root
-  const root = createRoot(container);
+    // Create chat provider
+    provider = createChatProvider(config);
+    log("[createChat] Created provider:", provider.name);
+
+    // Create storage adapter
+    // Auto-select "langgraph" storage when langgraph config is present (unless explicitly set)
+    const storageType =
+      config.storageType || (config.langgraph ? "langgraph" : "none");
+    storage = createStorageAdapter(storageType, config.langgraph);
+
+    // Create container element
+    container = document.createElement("div");
+    container.id = "thesys-chat-root";
+    document.body.appendChild(container);
+
+    // Create React root
+    root = createRoot(container);
+  } catch (error) {
+    const err = error instanceof Error ? error : new Error(String(error));
+    logError("[createChat] Initialization failed:", err.message);
+    config.onError?.(err);
+    throw err;
+  }
 
   // Track current session ID
   let currentSessionId: string | null = null;

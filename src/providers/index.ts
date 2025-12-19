@@ -1,11 +1,11 @@
 import type { ChatConfig } from "../types";
 import type { ChatProvider } from "./ChatProvider";
 import { LangGraphProvider } from "./LangGraphProvider";
-import { WebhookProvider } from "./WebhookProvider";
+import { N8NProvider } from "./N8NProvider";
 
 export type { ChatProvider } from "./ChatProvider";
 export { LangGraphProvider } from "./LangGraphProvider";
-export { WebhookProvider } from "./WebhookProvider";
+export { N8NProvider } from "./N8NProvider";
 
 /**
  * Create a chat provider based on the configuration
@@ -21,7 +21,7 @@ export function createChatProvider(config: ChatConfig): ChatProvider {
   }
 
   if (config.n8n?.webhookUrl) {
-    return new WebhookProvider(config.n8n);
+    return new N8NProvider(config.n8n);
   }
 
   throw new Error(
