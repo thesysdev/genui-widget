@@ -43,78 +43,74 @@ function ChatWithPersistence({
 }) {
   const formFactor = config.mode === "sidepanel" ? "side-panel" : "full-page";
 
+  /**
+   * Wrap an async function with error boundary handling
+   * Errors are logged and sent to onError callback in one place
+   */
+  function withErrorBoundary<T, Args extends unknown[]>(
+    fn: (...args: Args) => Promise<T>,
+    context: string,
+    options?: { fallback?: T }
+  ): (...args: Args) => Promise<T> {
+    return async (...args: Args): Promise<T> => {
+      try {
+        return await fn(...args);
+      } catch (error) {
+        const err = handleError(error, context, config.onError);
+        if (options?.fallback !== undefined) {
+          return options.fallback;
+        }
+        throw err;
+      }
+    };
+  }
+
   // Initialize thread list manager
   const threadListManager = useThreadListManager({
-    fetchThreadList: async () => {
-      try {
-        return await storage.getThreadList();
-      } catch (error) {
-        handleError(error, "[Storage] fetchThreadList failed", config.onError);
-        return []; // Return empty list on error so UI still works
-      }
-    },
-    createThread: async (firstMessage: UserMessage) => {
+    fetchThreadList: withErrorBoundary(
+      () => storage.getThreadList(),
+      "[Storage] fetchThreadList failed",
+      { fallback: [] }
+    ),
+    createThread: withErrorBoundary(async (firstMessage: UserMessage) => {
       const title = generateThreadTitle(firstMessage.message || "New Chat");
 
-      try {
-        // Use LangGraph API to create thread if using LangGraph storage
-        if (storage instanceof LangGraphStorageAdapter) {
-          const thread = await storage.createThread(title);
-          // Note: First message will be sent via processMessage, not saved here
-          return thread;
-        }
-
-        // Default: create thread locally
-        const threadId = crypto.randomUUID();
-        const thread: Thread = {
-          threadId,
-          title,
-          createdAt: new Date(),
-          isRunning: false,
-        };
-
-        await storage.updateThread(thread);
-
-        // Convert UserMessage to Message format (react-core -> genui-sdk)
-        const message: Message = {
-          id: crypto.randomUUID(),
-          role: "user",
-          content: firstMessage.message || "",
-        };
-        await storage.saveThread(threadId, [message]);
-
+      // Use LangGraph API to create thread if using LangGraph storage
+      if (storage instanceof LangGraphStorageAdapter) {
+        const thread = await storage.createThread(title);
+        // Note: First message will be sent via processMessage, not saved here
         return thread;
-      } catch (error) {
-        throw handleError(
-          error,
-          "[Storage] createThread failed",
-          config.onError
-        );
       }
-    },
-    deleteThread: async (threadId: string) => {
-      try {
-        await storage.deleteThread(threadId);
-      } catch (error) {
-        throw handleError(
-          error,
-          "[Storage] deleteThread failed",
-          config.onError
-        );
-      }
-    },
-    updateThread: async (thread: Thread) => {
-      try {
-        await storage.updateThread(thread);
-        return thread;
-      } catch (error) {
-        throw handleError(
-          error,
-          "[Storage] updateThread failed",
-          config.onError
-        );
-      }
-    },
+
+      // Default: create thread locally
+      const threadId = crypto.randomUUID();
+      const thread: Thread = {
+        threadId,
+        title,
+        createdAt: new Date(),
+        isRunning: false,
+      };
+
+      await storage.updateThread(thread);
+
+      // Convert UserMessage to Message format (react-core -> genui-sdk)
+      const message: Message = {
+        id: crypto.randomUUID(),
+        role: "user",
+        content: firstMessage.message || "",
+      };
+      await storage.saveThread(threadId, [message]);
+
+      return thread;
+    }, "[Storage] createThread failed"),
+    deleteThread: withErrorBoundary(
+      (threadId: string) => storage.deleteThread(threadId),
+      "[Storage] deleteThread failed"
+    ),
+    updateThread: withErrorBoundary(async (thread: Thread) => {
+      await storage.updateThread(thread);
+      return thread;
+    }, "[Storage] updateThread failed"),
     onSwitchToNew: () => {
       // Called when user switches to new thread
     },
@@ -127,17 +123,16 @@ function ChatWithPersistence({
   // Initialize thread manager
   const threadManager = useThreadManager({
     threadListManager,
-    loadThread: async (threadId: string) => {
-      try {
+    loadThread: withErrorBoundary(
+      async (threadId: string) => {
         log("[Storage] loadThread:", threadId);
         const messages = await storage.getThread(threadId);
         log("[Storage] Loaded", messages?.length || 0, "messages");
         return messages || [];
-      } catch (error) {
-        handleError(error, "[Storage] loadThread failed", config.onError);
-        return []; // Return empty array so UI still works
-      }
-    },
+      },
+      "[Storage] loadThread failed",
+      { fallback: [] }
+    ),
     processMessage: async ({
       threadId,
       messages,
@@ -174,18 +169,12 @@ function ChatWithPersistence({
       const lastMessage = messages[messages.length - 1];
       const prompt = lastMessage?.content || "";
 
-      // Send message via provider
-      let response: Response;
-      try {
-        response = await provider.sendMessage(threadId, prompt);
-      } catch (error) {
-        // Re-throw so the SDK can display error state in UI
-        throw handleError(
-          error,
-          "[Provider] sendMessage failed",
-          config.onError
-        );
-      }
+      // Send message via provider (wrapped with error boundary)
+      const sendMessage = withErrorBoundary(
+        () => provider.sendMessage(threadId, prompt),
+        "[Provider] sendMessage failed"
+      );
+      const response = await sendMessage();
 
       // For LangGraph, messages are automatically persisted by the run
       // Just return the response directly
