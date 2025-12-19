@@ -12,7 +12,7 @@ import type { ChatConfig, ChatInstance } from "./types";
 import { createStorageAdapter, LangGraphStorageAdapter } from "./storage";
 import type { StorageAdapter } from "./storage";
 import { createChatProvider, type ChatProvider } from "./providers";
-import { log, logError } from "./utils/logger";
+import { log, handleError, normalizeError } from "./utils/logger";
 import "./styles/widget.css";
 
 /**
@@ -43,21 +43,13 @@ function ChatWithPersistence({
 }) {
   const formFactor = config.mode === "sidepanel" ? "side-panel" : "full-page";
 
-  // Helper to handle storage errors
-  const handleStorageError = (error: unknown, operation: string): Error => {
-    const err = error instanceof Error ? error : new Error(String(error));
-    logError(`[Storage] ${operation} failed:`, err.message);
-    config.onError?.(err);
-    return err;
-  };
-
   // Initialize thread list manager
   const threadListManager = useThreadListManager({
     fetchThreadList: async () => {
       try {
         return await storage.getThreadList();
       } catch (error) {
-        handleStorageError(error, "fetchThreadList");
+        handleError(error, "[Storage] fetchThreadList failed", config.onError);
         return []; // Return empty list on error so UI still works
       }
     },
@@ -93,14 +85,22 @@ function ChatWithPersistence({
 
         return thread;
       } catch (error) {
-        throw handleStorageError(error, "createThread");
+        throw handleError(
+          error,
+          "[Storage] createThread failed",
+          config.onError
+        );
       }
     },
     deleteThread: async (threadId: string) => {
       try {
         await storage.deleteThread(threadId);
       } catch (error) {
-        throw handleStorageError(error, "deleteThread");
+        throw handleError(
+          error,
+          "[Storage] deleteThread failed",
+          config.onError
+        );
       }
     },
     updateThread: async (thread: Thread) => {
@@ -108,7 +108,11 @@ function ChatWithPersistence({
         await storage.updateThread(thread);
         return thread;
       } catch (error) {
-        throw handleStorageError(error, "updateThread");
+        throw handleError(
+          error,
+          "[Storage] updateThread failed",
+          config.onError
+        );
       }
     },
     onSwitchToNew: () => {
@@ -130,7 +134,7 @@ function ChatWithPersistence({
         log("[Storage] Loaded", messages?.length || 0, "messages");
         return messages || [];
       } catch (error) {
-        handleStorageError(error, "loadThread");
+        handleError(error, "[Storage] loadThread failed", config.onError);
         return []; // Return empty array so UI still works
       }
     },
@@ -161,8 +165,8 @@ function ChatWithPersistence({
           await storage.saveThread(threadId, messages);
           log("[Storage] Saved user messages");
         } catch (error) {
-          // Log but don't fail - message can still be sent even if save fails
-          handleStorageError(error, "saveThread (user messages)");
+          // Log but don't notify - message can still be sent even if save fails
+          normalizeError(error, "[Storage] saveThread (user messages) failed");
         }
       }
 
@@ -175,12 +179,12 @@ function ChatWithPersistence({
       try {
         response = await provider.sendMessage(threadId, prompt);
       } catch (error) {
-        // Notify consumer via callback
-        const err = error instanceof Error ? error : new Error(String(error));
-        logError("[processMessage] Error:", err.message);
-        config.onError?.(err);
         // Re-throw so the SDK can display error state in UI
-        throw err;
+        throw handleError(
+          error,
+          "[Provider] sendMessage failed",
+          config.onError
+        );
       }
 
       // For LangGraph, messages are automatically persisted by the run
@@ -223,8 +227,11 @@ function ChatWithPersistence({
                   messages.length + 1
                 );
               } catch (error) {
-                // Log but don't fail - response was already streamed successfully
-                handleStorageError(error, "saveThread (assistant message)");
+                // Log but don't notify - response was already streamed successfully
+                normalizeError(
+                  error,
+                  "[Storage] saveThread (assistant message) failed"
+                );
               }
 
               controller.close();
@@ -314,10 +321,11 @@ export function createChat(config: ChatConfig): ChatInstance {
     // Create React root
     root = createRoot(container);
   } catch (error) {
-    const err = error instanceof Error ? error : new Error(String(error));
-    logError("[createChat] Initialization failed:", err.message);
-    config.onError?.(err);
-    throw err;
+    throw handleError(
+      error,
+      "[createChat] Initialization failed",
+      config.onError
+    );
   }
 
   // Track current session ID

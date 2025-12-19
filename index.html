@@ -15,11 +15,11 @@
       import { createChat } from "./src/index.ts";
 
       const chat = createChat({
-        langgraph: {
-          assistantId: "agent",
-          deploymentUrl: "http://localhost:2024",
+        n8n: {
+          webhookUrl: "<YOUR_WEBHOOK_URL>",
+          enableStreaming: true,
         },
-        n8n: {},
+        langgraph: {},
         agentName: "Test Bot",
         theme: { mode: "light" },
         mode: "fullscreen", // Options: "fullscreen" (default) | "sidepanel"
