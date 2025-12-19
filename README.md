@@ -1,7 +1,6 @@
 # Generative UI Widget
 
-An embeddable chat widget for building Generative UI applications.
-Add buttons, forms, and charts to your existing LangGraph(/LangChain) agents and n8n workflows.
+An embeddable chat widget that lets your AI chatbots render rich, interactive UI like buttons, forms, charts, cards and more instead of plain text. Works out of the box with LangGraph/LangChain, n8n, and custom webhooks.
 
 [![Built with Thesys](https://thesys.dev/built-with-thesys-badge.svg)](https://thesys.dev)
 
