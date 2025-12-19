@@ -76,6 +76,16 @@ export class LangGraphProvider implements ChatProvider {
 
   /**
    * Transform LangGraph streaming format to plain text stream
+   *
+   * LangGraph uses Server-Sent Events (SSE) format:
+   * - event: <event_type>
+   * - data: <json_line_1>
+   * - data: <json_line_2>
+   * - ...
+   * - id: <id>
+   * - (blank line separates events)
+   *
+   * We extract content from "messages|*" events where data[0].content contains the text.
    */
   private transformStream(response: Response): Response {
     const reader = response.body!.getReader();
@@ -84,16 +94,49 @@ export class LangGraphProvider implements ChatProvider {
     const stream = new ReadableStream({
       async start(controller) {
         let buffer = "";
-        let hasStreamedContent = false;
+        let currentEvent = "";
+        let dataLines: string[] = [];
+        let detectedVersion: string | null = null;
 
-        // Helper to extract content from LangGraph JSON format
-        const extractContent = (
-          data: { content?: string }[]
-        ): string | null => {
+        // Process a complete SSE event
+        const processEvent = (eventType: string, dataLines: string[]) => {
+          // Only process messages events (streaming content)
+          if (!eventType.startsWith("messages|")) {
+            return;
+          }
+
           try {
-            return data[0].content || null;
-          } catch {
-            return null;
+            // Join all data lines (remove "data: " prefix from each)
+            const jsonStr = dataLines
+              .map((line) => {
+                if (line.startsWith("data: ")) return line.slice(6);
+                if (line.startsWith("data:")) return line.slice(5);
+                return line;
+              })
+              .join("\n");
+
+            const data = JSON.parse(jsonStr);
+
+            // Detect and log LangGraph version from metadata (data[1])
+            if (
+              !detectedVersion &&
+              Array.isArray(data) &&
+              data[1]?.langgraph_version
+            ) {
+              detectedVersion = data[1].langgraph_version;
+              log("[LangGraph] Detected version:", detectedVersion);
+            }
+
+            // data is an array: [aiMessage, metadata]
+            // aiMessage.content contains the streaming text
+            if (Array.isArray(data) && data[0]?.content) {
+              const content = data[0].content;
+              if (content) {
+                controller.enqueue(new TextEncoder().encode(content));
+              }
+            }
+          } catch (e) {
+            log("[LangGraph] Failed to parse event:", eventType, e);
           }
         };
 
@@ -104,52 +147,36 @@ export class LangGraphProvider implements ChatProvider {
 
             const chunk = decoder.decode(value, { stream: true });
             buffer += chunk;
-            const lines = buffer.split("\n");
 
-            buffer = lines.pop() || "";
+            // Process complete lines
+            const lines = buffer.split("\n");
+            buffer = lines.pop() || ""; // Keep incomplete line in buffer
 
             for (const line of lines) {
-              if (line.trim()) {
-                try {
-                  // LangGraph format: "data: {...}"
-                  const data = JSON.parse(line.slice(6));
-                  const content = extractContent(data);
-                  if (content) {
-                    controller.enqueue(new TextEncoder().encode(content));
-                    hasStreamedContent = true;
-                  }
-                } catch (e) {
-                  logError(
-                    "[LangGraph] Failed to parse streaming line:",
-                    line,
-                    e
-                  );
+              if (line.startsWith("event: ")) {
+                // New event starting - process previous event if we have data
+                if (currentEvent && dataLines.length > 0) {
+                  processEvent(currentEvent, dataLines);
                 }
+                currentEvent = line.slice(7).trim();
+                dataLines = [];
+              } else if (line.startsWith("data:")) {
+                dataLines.push(line);
+              } else if (line.startsWith("id:")) {
+                // End of event block - process it
+                if (currentEvent && dataLines.length > 0) {
+                  processEvent(currentEvent, dataLines);
+                }
+                currentEvent = "";
+                dataLines = [];
               }
+              // Ignore blank lines and other content
             }
           }
 
-          // Process remaining buffer
-          if (buffer.trim()) {
-            try {
-              const data = JSON.parse(buffer);
-              const content = extractContent(data);
-              if (content) {
-                controller.enqueue(new TextEncoder().encode(content));
-                hasStreamedContent = true;
-              }
-            } catch (e) {
-              // Buffer might not be valid JSON - could be plain text
-              if (!hasStreamedContent) {
-                controller.enqueue(new TextEncoder().encode(buffer));
-              } else {
-                logError(
-                  "[LangGraph] Failed to parse final streaming data:",
-                  buffer,
-                  e
-                );
-              }
-            }
+          // Process any remaining event
+          if (currentEvent && dataLines.length > 0) {
+            processEvent(currentEvent, dataLines);
           }
         } catch (error) {
           logError("[LangGraph] Streaming error:", error);
