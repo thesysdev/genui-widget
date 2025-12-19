@@ -1,6 +1,9 @@
-# GenUI Widget
+# Generative UI Widget
 
-An embeddable chat widget that connects to LangGraph deployments or webhook endpoints. Create beautiful chat interfaces powered by LangGraph agents, n8n workflows, Make.com, or any custom webhook provider.
+An embeddable chat widget for building Generative UI applications.
+Add buttons, forms, and charts to your existing LangGraph agents and n8n workflows.
+
+[![Built with Thesys](https://thesys.dev/built-with-thesys-badge.svg)](https://thesys.dev)
 
 ## Features
 
@@ -71,8 +74,6 @@ See Quick Start above.
 ```bash
 npm install genui-widget
 ```
-
-
 
 ```javascript
 import { createChat } from "genui-widget";
