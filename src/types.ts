@@ -64,6 +64,13 @@ export interface ChatConfig {
   onSessionStart?: (sessionId: string) => void;
 
   /**
+   * Callback fired when an error occurs during message processing
+   * Useful for logging, analytics, or custom error UI
+   * Note: The SDK will still display error states in the chat UI
+   */
+  onError?: (error: Error) => void;
+
+  /**
    * Theme configuration
    */
   theme?: {

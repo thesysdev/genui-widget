@@ -8,15 +8,10 @@ import {
 } from "@thesysai/genui-sdk";
 import type { Thread, UserMessage } from "@crayonai/react-core";
 import "@crayonai/react-ui/styles/index.css";
-import type {
-  ChatConfig,
-  ChatInstance,
-  LangGraphConfig,
-  N8NConfig,
-  WebhookMessage,
-} from "./types";
+import type { ChatConfig, ChatInstance } from "./types";
 import { createStorageAdapter, LangGraphStorageAdapter } from "./storage";
 import type { StorageAdapter } from "./storage";
+import { createChatProvider, type ChatProvider } from "./providers";
 import { log, logError } from "./utils/logger";
 import "./styles/widget.css";
 
@@ -32,323 +27,89 @@ function generateThreadTitle(message: string): string {
   return cleaned.substring(0, maxLength) + "...";
 }
 
-async function callLanggraph(
-  langgraphConfig: LangGraphConfig,
-  sessionId: string,
-  prompt: string
-): Promise<Response> {
-  console.log("callLanggraph", langgraphConfig, sessionId, prompt);
-  const response = await fetch(
-    `${langgraphConfig.deploymentUrl}/threads/${sessionId}/runs/stream`,
-    {
-      method: "POST",
-      body: JSON.stringify({
-        assistant_id: langgraphConfig.assistantId,
-        input: {
-          messages: [
-            {
-              role: "human",
-              content: prompt,
-            },
-          ],
-        },
-        stream_mode: ["values", "messages-tuple", "custom"],
-        stream_subgraphs: true,
-        stream_resumable: true,
-      }),
-    }
-  );
-
-  if (!response.body) {
-    throw new Error("Response body is null");
-  }
-
-  const reader = response.body.getReader();
-  const decoder = new TextDecoder();
-
-  const stream = new ReadableStream({
-    async start(controller) {
-      let buffer = "";
-      let hasStreamedContent = false;
-
-      // Helper to extract content from various JSON formats
-      const extractContent = (data: { content?: string }[]): string | null => {
-        try {
-          return data[0].content || null;
-        } catch {
-          return null;
-        }
-      };
-
-      try {
-        while (true) {
-          const { done, value } = await reader.read();
-          if (done) break;
-
-          const chunk = decoder.decode(value, { stream: true });
-          buffer += chunk;
-          const lines = buffer.split("\n");
-
-          buffer = lines.pop() || "";
-
-          for (const line of lines) {
-            if (line.trim()) {
-              try {
-                console.log("line", line);
-                const data = JSON.parse(line.slice(6));
-                console.log("datap", data);
-                const content = extractContent(data);
-                if (content) {
-                  controller.enqueue(new TextEncoder().encode(content));
-                  hasStreamedContent = true;
-                }
-              } catch (e) {
-                logError("Failed to parse streaming line:", line, e);
-              }
-            }
-          }
-        }
-
-        // Process remaining buffer
-        if (buffer.trim()) {
-          try {
-            const data = JSON.parse(buffer);
-            const content = extractContent(data);
-            if (content) {
-              controller.enqueue(new TextEncoder().encode(content));
-              hasStreamedContent = true;
-            }
-          } catch (e) {
-            // Buffer might not be valid JSON - could be plain text
-            if (!hasStreamedContent) {
-              // If we haven't streamed anything, send buffer as-is
-              controller.enqueue(new TextEncoder().encode(buffer));
-            } else {
-              logError("Failed to parse final streaming data:", buffer, e);
-            }
-          }
-        }
-      } catch (error) {
-        logError("Streaming error:", error);
-        controller.error(error);
-      } finally {
-        controller.close();
-        reader.releaseLock();
-      }
-    },
-  });
-
-  return new Response(stream, {
-    headers: {
-      "Content-Type": "text/plain",
-    },
-  });
-}
-
-/**
- * Helper function to call webhook endpoint
- * Supports n8n, Make.com, Zapier, and custom webhook providers
- */
-async function callWebhook(
-  n8nConfig: N8NConfig,
-  sessionId: string,
-  prompt: string
-): Promise<Response> {
-  const message: WebhookMessage = {
-    chatInput: prompt,
-    sessionId: sessionId,
-  };
-
-  const webhookMethod = n8nConfig.webhookConfig?.method || "POST";
-  const customHeaders = n8nConfig.webhookConfig?.headers || {};
-
-  const headers = {
-    "Content-Type": "application/json",
-    ...customHeaders,
-  };
-
-  const response = await fetch(n8nConfig.webhookUrl, {
-    method: webhookMethod,
-    headers: headers,
-    body: JSON.stringify(message),
-  });
-
-  if (!response.ok) {
-    throw new Error(`Webhook error: ${response.status} ${response.statusText}`);
-  }
-
-  // Check Content-Type to help determine how to handle the response
-  const contentType = response.headers.get("Content-Type") || "";
-  const isStreamContentType =
-    contentType.includes("text/event-stream") ||
-    contentType.includes("application/x-ndjson");
-
-  // Determine streaming behavior:
-  // - If user explicitly enabled streaming, trust that config (backend may send wrong Content-Type)
-  // - If Content-Type indicates streaming, handle as stream
-  const shouldStream = n8nConfig.enableStreaming || isStreamContentType;
-
-  // If NOT streaming, parse as JSON
-  if (!shouldStream) {
-    const clonedResponse = response.clone();
-    try {
-      const data = await clonedResponse.json();
-      // Successfully parsed JSON - return it
-      return new Response(data.output || data.message || JSON.stringify(data));
-    } catch (error) {
-      // JSON parsing failed - try to handle as stream as fallback
-      if (!response.body) {
-        throw new Error(
-          `Failed to parse response as JSON and no body available: ${error}`
-        );
-      }
-    }
-  }
-
-  // For streaming, transform line-delimited JSON format to plain text stream
-  if (!response.body) {
-    throw new Error("Response body is null");
-  }
-
-  const reader = response.body.getReader();
-  const decoder = new TextDecoder();
-
-  const stream = new ReadableStream({
-    async start(controller) {
-      let buffer = "";
-      let hasStreamedContent = false;
-
-      // Helper to extract content from various JSON formats
-      const extractContent = (data: Record<string, unknown>): string | null => {
-        // NDJSON streaming format: {"type":"item","content":"..."}
-        if (data.type === "item" && typeof data.content === "string") {
-          return data.content;
-        }
-        // Regular JSON response format: {"output":"..."} or {"message":"..."}
-        if (typeof data.output === "string") return data.output;
-        if (typeof data.message === "string") return data.message;
-        return null;
-      };
-
-      try {
-        while (true) {
-          const { done, value } = await reader.read();
-          if (done) break;
-
-          const chunk = decoder.decode(value, { stream: true });
-          buffer += chunk;
-          const lines = buffer.split("\n");
-
-          buffer = lines.pop() || "";
-
-          for (const line of lines) {
-            if (line.trim()) {
-              try {
-                const data = JSON.parse(line);
-                const content = extractContent(data);
-                if (content) {
-                  controller.enqueue(new TextEncoder().encode(content));
-                  hasStreamedContent = true;
-                }
-              } catch (e) {
-                logError("Failed to parse streaming line:", line, e);
-              }
-            }
-          }
-        }
-
-        // Process remaining buffer
-        if (buffer.trim()) {
-          try {
-            const data = JSON.parse(buffer);
-            const content = extractContent(data);
-            if (content) {
-              controller.enqueue(new TextEncoder().encode(content));
-              hasStreamedContent = true;
-            }
-          } catch (e) {
-            // Buffer might not be valid JSON - could be plain text
-            if (!hasStreamedContent) {
-              // If we haven't streamed anything, send buffer as-is
-              controller.enqueue(new TextEncoder().encode(buffer));
-            } else {
-              logError("Failed to parse final streaming data:", buffer, e);
-            }
-          }
-        }
-      } catch (error) {
-        logError("Streaming error:", error);
-        controller.error(error);
-      } finally {
-        controller.close();
-        reader.releaseLock();
-      }
-    },
-  });
-
-  return new Response(stream, {
-    headers: {
-      "Content-Type": "text/plain",
-    },
-  });
-}
-
 /**
  * React component wrapper that manages thread persistence
  */
 function ChatWithPersistence({
   config,
   storage,
+  provider,
   onSessionIdChange,
 }: {
   config: ChatConfig;
   storage: StorageAdapter;
+  provider: ChatProvider;
   onSessionIdChange: (sessionId: string | null) => void;
 }) {
   const formFactor = config.mode === "sidepanel" ? "side-panel" : "full-page";
 
+  // Helper to handle storage errors
+  const handleStorageError = (error: unknown, operation: string): Error => {
+    const err = error instanceof Error ? error : new Error(String(error));
+    logError(`[Storage] ${operation} failed:`, err.message);
+    config.onError?.(err);
+    return err;
+  };
+
   // Initialize thread list manager
   const threadListManager = useThreadListManager({
     fetchThreadList: async () => {
-      return await storage.getThreadList();
+      try {
+        return await storage.getThreadList();
+      } catch (error) {
+        handleStorageError(error, "fetchThreadList");
+        return []; // Return empty list on error so UI still works
+      }
     },
     createThread: async (firstMessage: UserMessage) => {
       const title = generateThreadTitle(firstMessage.message || "New Chat");
 
-      // Use LangGraph API to create thread if using LangGraph storage
-      if (storage instanceof LangGraphStorageAdapter) {
-        const thread = await storage.createThread(title);
-        // Note: First message will be sent via processMessage, not saved here
+      try {
+        // Use LangGraph API to create thread if using LangGraph storage
+        if (storage instanceof LangGraphStorageAdapter) {
+          const thread = await storage.createThread(title);
+          // Note: First message will be sent via processMessage, not saved here
+          return thread;
+        }
+
+        // Default: create thread locally
+        const threadId = crypto.randomUUID();
+        const thread: Thread = {
+          threadId,
+          title,
+          createdAt: new Date(),
+          isRunning: false,
+        };
+
+        await storage.updateThread(thread);
+
+        // Convert UserMessage to Message format (react-core -> genui-sdk)
+        const message: Message = {
+          id: crypto.randomUUID(),
+          role: "user",
+          content: firstMessage.message || "",
+        };
+        await storage.saveThread(threadId, [message]);
+
         return thread;
+      } catch (error) {
+        throw handleStorageError(error, "createThread");
       }
-
-      // Default: create thread locally
-      const threadId = crypto.randomUUID();
-      const thread: Thread = {
-        threadId,
-        title,
-        createdAt: new Date(),
-        isRunning: false,
-      };
-
-      await storage.updateThread(thread);
-
-      // Convert UserMessage to Message format (react-core -> genui-sdk)
-      const message: Message = {
-        id: crypto.randomUUID(),
-        role: "user",
-        content: firstMessage.message || "",
-      };
-      await storage.saveThread(threadId, [message]);
-
-      return thread;
     },
     deleteThread: async (threadId: string) => {
-      await storage.deleteThread(threadId);
+      try {
+        await storage.deleteThread(threadId);
+      } catch (error) {
+        throw handleStorageError(error, "deleteThread");
+      }
     },
     updateThread: async (thread: Thread) => {
-      await storage.updateThread(thread);
-      return thread;
+      try {
+        await storage.updateThread(thread);
+        return thread;
+      } catch (error) {
+        throw handleStorageError(error, "updateThread");
+      }
     },
     onSwitchToNew: () => {
       // Called when user switches to new thread
@@ -363,10 +124,15 @@ function ChatWithPersistence({
   const threadManager = useThreadManager({
     threadListManager,
     loadThread: async (threadId: string) => {
-      log("[Storage] loadThread:", threadId);
-      const messages = await storage.getThread(threadId);
-      log("[Storage] Loaded", messages?.length || 0, "messages");
-      return messages || [];
+      try {
+        log("[Storage] loadThread:", threadId);
+        const messages = await storage.getThread(threadId);
+        log("[Storage] Loaded", messages?.length || 0, "messages");
+        return messages || [];
+      } catch (error) {
+        handleStorageError(error, "loadThread");
+        return []; // Return empty array so UI still works
+      }
     },
     processMessage: async ({
       threadId,
@@ -391,23 +157,30 @@ function ChatWithPersistence({
 
       // Save user messages (skip for LangGraph - messages are persisted via runs)
       if (!isLangGraph) {
-        await storage.saveThread(threadId, messages);
-        log("[Storage] Saved user messages");
+        try {
+          await storage.saveThread(threadId, messages);
+          log("[Storage] Saved user messages");
+        } catch (error) {
+          // Log but don't fail - message can still be sent even if save fails
+          handleStorageError(error, "saveThread (user messages)");
+        }
       }
 
       // Get prompt
       const lastMessage = messages[messages.length - 1];
       const prompt = lastMessage?.content || "";
 
-      // Call webhook or LangGraph
+      // Send message via provider
       let response: Response;
-      if (config.n8n?.webhookUrl) {
-        response = await callWebhook(config.n8n, threadId, prompt);
-      } else if (config.langgraph?.deploymentUrl) {
-        response = await callLanggraph(config.langgraph, threadId, prompt);
-      } else {
-        console.log("No webhook or langgraph configuration provided");
-        throw new Error("No webhook or langgraph configuration provided");
+      try {
+        response = await provider.sendMessage(threadId, prompt);
+      } catch (error) {
+        // Notify consumer via callback
+        const err = error instanceof Error ? error : new Error(String(error));
+        logError("[processMessage] Error:", err.message);
+        config.onError?.(err);
+        // Re-throw so the SDK can display error state in UI
+        throw err;
       }
 
       // For LangGraph, messages are automatically persisted by the run
@@ -440,14 +213,19 @@ function ChatWithPersistence({
                 role: "assistant",
                 content: fullContent,
               };
-              await storage.saveThread(threadId, [
-                ...messages,
-                assistantMessage,
-              ]);
-              log(
-                "[Storage] Saved assistant message, total:",
-                messages.length + 1
-              );
+              try {
+                await storage.saveThread(threadId, [
+                  ...messages,
+                  assistantMessage,
+                ]);
+                log(
+                  "[Storage] Saved assistant message, total:",
+                  messages.length + 1
+                );
+              } catch (error) {
+                // Log but don't fail - response was already streamed successfully
+                handleStorageError(error, "saveThread (assistant message)");
+              }
 
               controller.close();
             } catch (error) {
@@ -499,7 +277,11 @@ export function createChat(config: ChatConfig): ChatInstance {
     throw new Error("n8n or langgraph configuration is required");
   }
 
-  console.log("config", config);
+  log("[createChat] Initializing with config:", {
+    hasLanggraph: !!config.langgraph,
+    hasN8n: !!config.n8n,
+    storageType: config.storageType,
+  });
 
   // Set debug logging flag at window level
   if (!window.__THESYS_CHAT__) {
@@ -507,6 +289,10 @@ export function createChat(config: ChatConfig): ChatInstance {
   }
   window.__THESYS_CHAT__.enableDebugLogging =
     config.enableDebugLogging || false;
+
+  // Create chat provider
+  const provider = createChatProvider(config);
+  log("[createChat] Created provider:", provider.name);
 
   // Create storage adapter
   // Auto-select "langgraph" storage when langgraph config is present (unless explicitly set)
@@ -530,6 +316,7 @@ export function createChat(config: ChatConfig): ChatInstance {
     createElement(ChatWithPersistence, {
       config,
       storage,
+      provider,
       onSessionIdChange: (sessionId: string | null) => {
         currentSessionId = sessionId;
       },
