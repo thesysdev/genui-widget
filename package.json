@@ -52,5 +52,9 @@
   },
   "resolutions": {
     "rollup": "npm:@rollup/wasm-node"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/thesysdev/genui-widget.git"
   }
 }
