@@ -1,21 +1,47 @@
-# GenUI Widget
+# Generative UI Widget
 
-An embeddable chat widget that connects to webhook endpoints. Create beautiful chat interfaces powered by your custom workflows from n8n, Make.com, or any custom webhook provider.
+An embeddable chat widget for building Generative UI applications.
+Add buttons, forms, and charts to your existing LangGraph(/LangChain) agents and n8n workflows.
+
+[![Built with Thesys](https://thesys.dev/built-with-thesys-badge.svg)](https://thesys.dev)
 
 ## Features
 
 - 🎨 **Beautiful UI** - Clean, fullscreen chat interface
 - 🚀 **Easy Integration** - Single script tag or npm package
-- 💬 **Session Management** - Automatic session handling
-- 💾 **Persistence** - Optional localStorage support for chat history
+- 💬 **Session Management** - Automatic session handling with persistent threads
+- 💾 **Flexible Storage** - localStorage, LangGraph-managed, or in-memory
 - 🗂️ **Thread Management** - Create, switch, and delete conversation threads
 - 🌓 **Theme Support** - Light and dark mode
 - 📱 **Responsive** - Works perfectly on mobile and desktop
-- 🔌 **Provider Agnostic** - Works with n8n, Make.com, or custom webhooks
+- 🔌 **Multi-Provider** - LangGraph, n8n, Make.com, or custom webhooks
+- 🌊 **Streaming Support** - Real-time streaming responses from your backend
 
 ## Quick Start
 
-Add this script to your HTML:
+### Using LangGraph(/LangChain)
+
+```html
+<link
+  href="https://cdn.jsdelivr.net/npm/genui-widget/dist/genui-widget.css"
+  rel="stylesheet"
+/>
+
+<script type="module">
+  import { createChat } from "https://cdn.jsdelivr.net/npm/genui-widget/dist/genui-widget.es.js";
+
+  createChat({
+    langgraph: {
+      deploymentUrl: "https://your-deployment.langraph.app",
+      assistantId: "your-assistant-id",
+    },
+    storageType: "langgraph", // Use LangGraph's built-in thread management
+    agentName: "Assistant",
+  });
+</script>
+```
+
+### Using n8n or Custom Webhooks
 
 ```html
 <link
@@ -29,7 +55,9 @@ Add this script to your HTML:
   createChat({
     n8n: {
       webhookUrl: "YOUR_WEBHOOK_URL",
+      enableStreaming: true, // Optional: enable streaming responses
     },
+    storageType: "localstorage", // Persist chats locally
     agentName: "Assistant",
   });
 </script>
@@ -47,19 +75,25 @@ See Quick Start above.
 npm install genui-widget
 ```
 
-**Note:** This package requires React 18 or 19 as peer dependencies. Make sure you have React installed in your project:
-
-```bash
-npm install react react-dom
-```
-
 ```javascript
 import { createChat } from "genui-widget";
 
+// With LangGraph
+const chat = createChat({
+  langgraph: {
+    deploymentUrl: "https://your-deployment.langraph.app",
+    assistantId: "your-assistant-id",
+  },
+  storageType: "langgraph",
+});
+
+// OR with n8n/webhooks
 const chat = createChat({
   n8n: {
     webhookUrl: "YOUR_WEBHOOK_URL",
+    enableStreaming: true,
   },
+  storageType: "localstorage",
 });
 ```
 
@@ -67,23 +101,31 @@ const chat = createChat({
 
 ```javascript
 const chat = createChat({
-  // Required: Webhook configuration
+  // Provider configuration (choose one)
+  langgraph: {
+    deploymentUrl: "https://your-deployment.langraph.app",
+    assistantId: "your-assistant-id",
+  },
+  // OR
   n8n: {
     webhookUrl: "https://your-webhook-endpoint.com/chat",
-    enableStreaming: false, // Optional: Enable streaming responses
+    enableStreaming: true, // Optional: Enable streaming responses
   },
 
   // Optional settings
   agentName: "Assistant", // Bot/agent name
   logoUrl: "https://example.com/logo.png", // Logo image URL
   theme: { mode: "light" }, // 'light' or 'dark'
-  storageType: "localstorage", // 'none' or 'localstorage'
+  storageType: "langgraph", // 'none', 'localstorage', or 'langgraph'
   mode: "fullscreen", // 'fullscreen' or 'sidepanel'
   enableDebugLogging: false, // Enable console debug logging
 
-  // Optional: Callback when session starts
+  // Optional: Callbacks
   onSessionStart: (sessionId) => {
     console.log("Session started:", sessionId);
+  },
+  onError: (error) => {
+    console.error("Chat error:", error);
   },
 });
 ```
@@ -94,12 +136,22 @@ const chat = createChat({
 
 - Messages work normally during the session
 - All data is lost on page refresh
+- Best for: Simple use cases, demos, or privacy-focused applications
 
 **`storageType: "localstorage"`:**
 
 - Chat conversations persist across page refreshes
 - Users can create and manage multiple threads
 - Thread history is saved to browser localStorage
+- Best for: n8n/webhook integrations without built-in persistence
+
+**`storageType: "langgraph"`:**
+
+- Leverages LangGraph's built-in thread management
+- Conversations persist server-side across devices
+- Requires `langgraph` provider configuration
+- Thread operations (create, delete, update) sync with LangGraph API
+- Best for: LangGraph deployments requiring cross-device sync
 
 ### Programmatic Control
 
@@ -116,6 +168,41 @@ chat.close();
 // Destroy the widget completely
 chat.destroy();
 ```
+
+## Provider Integration
+
+### LangGraph
+
+The widget integrates seamlessly with [LangGraph](https://langchain-ai.github.io/langgraph/) deployments (Cloud or self-hosted).
+
+**Configuration:**
+
+```javascript
+createChat({
+  langgraph: {
+    deploymentUrl: "https://your-deployment.langraph.app",
+    assistantId: "your-assistant-id",
+  },
+  storageType: "langgraph", // Recommended for LangGraph
+});
+```
+
+**Features:**
+
+- ✅ **Automatic Thread Management** - Creates and manages threads via LangGraph API
+- ✅ **Server-Side Persistence** - Conversations persist across devices
+- ✅ **Streaming Support** - Real-time streaming via Server-Sent Events (SSE)
+- ✅ **Message History** - Fetches and displays conversation history
+- ✅ **Thread Operations** - Create, update, delete threads with metadata
+
+**How it works:**
+
+1. Widget calls `POST /threads` to create new conversation threads
+2. Messages sent via `POST /threads/{thread_id}/runs/stream` with streaming enabled
+3. Thread history retrieved via `GET /threads/{thread_id}/history`
+4. Thread list fetched via `POST /threads/search`
+
+The LangGraph provider automatically handles the streaming response format and extracts message content from the SSE events.
 
 ## Webhook Integration
 
@@ -154,54 +241,34 @@ Return line-delimited JSON chunks:
 
 ### n8n
 
-1. **Create a Webhook Trigger**
-
-   - Add a Webhook node to your workflow
-   - Set it to accept POST requests
-   - Note your webhook URL
-
-2. **Access the Data**
-
-   - Message: `{{ $json.chatInput }}`
-   - Session ID: `{{ $json.sessionId }}`
-
-3. **Return a Response**
-
-   - Use "Respond to Webhook" node
-   - Return: `{ "output": "Your response" }`
-
-4. **Configure CORS**
-   - Enable Domain Allowlist in webhook settings
-   - Add your domain(s): `example.com`, `www.example.com`
-   - For local dev: `localhost`, `127.0.0.1`
-
-**Security Note:** The webhook URL is visible in the browser. Use n8n's Domain Allowlist to restrict access.
-
-### Make.com
-
-1. Create a scenario with a **Webhook** module
-2. Process `chatInput` and `sessionId`
-3. Add your logic (AI, database, etc.)
-4. Use **Webhook Response** to return `{ "output": "Your response" }`
-
-### Custom Webhook
-
-Your endpoint should:
-
-1. Accept POST requests with JSON body
-2. Parse `chatInput` and `sessionId`
-3. Return JSON: `{ "output": "Your response" }`
-
-For streaming, return line-delimited JSON chunks.
+Follow the instructions at [thesys.dev/n8n](https://thesys.dev/n8n) to quickly set up your n8n workflow.
 
 ## Configuration Reference
 
 Complete list of all available options:
 
-### n8n (required)
+### Provider Configuration
+
+**You must configure either `langgraph` OR `n8n` (not both):**
+
+#### langgraph (optional)
 
 ```typescript
-n8n: {
+langgraph?: {
+  // Required: Your LangGraph deployment URL
+  deploymentUrl: string;
+
+  // Required: The assistant ID to use
+  assistantId: string;
+}
+```
+
+Use this for LangGraph Cloud or self-hosted deployments. When using LangGraph, set `storageType: "langgraph"` to leverage server-side thread management.
+
+#### n8n (optional)
+
+```typescript
+n8n?: {
   // Required: Your webhook URL
   webhookUrl: string;
 
@@ -215,6 +282,8 @@ n8n: {
   };
 }
 ```
+
+Use this for n8n, Make.com, or any custom webhook endpoint.
 
 ### agentName (optional)
 
@@ -253,13 +322,14 @@ Sets the color scheme for the chat interface.
 ### storageType (optional)
 
 ```typescript
-storageType?: 'none' | 'localstorage';  // Default: 'none'
+storageType?: 'none' | 'localstorage' | 'langgraph';  // Default: 'none'
 ```
 
 Controls chat history persistence:
 
 - `'none'` - Messages are kept in memory only, lost on page refresh
 - `'localstorage'` - Messages are saved to browser localStorage, persist across sessions
+- `'langgraph'` - Uses LangGraph's server-side thread management (requires `langgraph` provider)
 
 ### mode (optional)
 
@@ -280,25 +350,58 @@ onSessionStart?: (sessionId: string) => void;
 
 Callback function that fires when a new chat session is created. Receives the session ID as a parameter. Useful for analytics or tracking.
 
+### onError (optional)
+
+```typescript
+onError?: (error: Error) => void;
+```
+
+Callback function that fires when an error occurs during message processing. Useful for logging, analytics, or custom error handling. Note that the widget will still display error states in the chat UI automatically.
+
 ## Troubleshooting
 
 ### Chat doesn't load
 
-- Check browser console for errors
-- Verify webhook URL is correct
-- Ensure webhook endpoint is active and accessible
+- Check browser console for errors (enable `enableDebugLogging: true`)
+- Verify provider configuration is correct (LangGraph URL/assistant ID or webhook URL)
+- Ensure endpoint is active and accessible
 - Check CORS settings
 
-### "Unable to reach the webhook" error
+### Connection errors
+
+**For LangGraph:**
+
+- Verify `deploymentUrl` and `assistantId` are correct
+- Check that the LangGraph deployment is running
+- Ensure your assistant is deployed and accessible
+
+**For n8n/webhooks:**
 
 - Verify webhook URL is correct
 - Check CORS configuration
 - Ensure your domain is allowlisted (for n8n)
+- Test webhook endpoint independently
 
-### Messages not sending
+### Messages not sending or displaying
+
+**For LangGraph:**
+
+- Check that streaming is working (SSE connection)
+- Verify assistant is responding correctly
+- Check thread creation/access permissions
+
+**For n8n/webhooks:**
 
 - Verify response format: `{ "output": "message" }`
+- For streaming, ensure line-delimited JSON format
 - Check webhook execution logs
+- Enable `enableStreaming` if using streaming responses
+
+### Storage issues
+
+- If using `storageType: "langgraph"`, ensure LangGraph provider is configured
+- For localStorage, check browser storage isn't full
+- Clear localStorage if you encounter corrupted state: `localStorage.clear()`
 
 ## Requirements
 

@@ -1,7 +1,21 @@
 /**
  * Storage type for persisting chat data
  */
-export type StorageType = "none" | "localstorage";
+export type StorageType = "none" | "localstorage" | "langgraph";
+
+/**
+ * LangGraph specific configuration
+ */
+export interface LangGraphConfig {
+  /**
+   * The LangGraph deployment URL to use
+   */
+  deploymentUrl: string;
+  /**
+   * The LangGraph assistant ID to use
+   */
+  assistantId: string;
+}
 
 /**
  * n8n/webhook specific configuration
@@ -34,15 +48,27 @@ export interface N8NConfig {
  */
 export interface ChatConfig {
   /**
+   * LangGraph configuration
+   */
+  langgraph?: LangGraphConfig;
+
+  /**
    * n8n webhook configuration
    */
-  n8n: N8NConfig;
+  n8n?: N8NConfig;
 
   /**
    * Callback fired when a session starts
    * The sessionId is the threadId from C1Chat
    */
   onSessionStart?: (sessionId: string) => void;
+
+  /**
+   * Callback fired when an error occurs during message processing
+   * Useful for logging, analytics, or custom error UI
+   * Note: The SDK will still display error states in the chat UI
+   */
+  onError?: (error: Error) => void;
 
   /**
    * Theme configuration
