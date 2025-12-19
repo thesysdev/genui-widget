@@ -17,27 +17,23 @@ jobs:
         with:
           fetch-depth: 0
 
-      - uses: pnpm/action-setup@v2
-        with:
-          version: 9.15.4
-
       - uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version: 20
           registry-url: "https://registry.npmjs.org"
-          cache: pnpm
-          cache-dependency-path: "**/pnpm-lock.yaml"
+          cache: npm
+          cache-dependency-path: "**/package-lock.json"
 
       # CRITICAL: npm 11.5.1+ required for trusted publishing
       - name: Install npm 11.6.4
         run: npm install -g npm@11.6.4
 
       - name: Install dependencies
-        run: pnpm install --frozen-lockfile
+        run: npm ci
 
       - name: Build projects
-        run: pnpm run build
+        run: npm run build
 
       - name: Publish package
-        run: pnpm publish --access public
+        run: npm publish --access public
         # Note: provenance is automatically generated with trusted publishing
