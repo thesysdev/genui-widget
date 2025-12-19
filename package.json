@@ -1,6 +1,6 @@
 {
   "name": "genui-widget",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "type": "module",
   "description": "Embeddable chat client for webhooks and workflow providers",
   "main": "./dist/genui-widget.umd.js",
