@@ -70,6 +70,9 @@ export class N8NProvider implements ChatProvider {
       try {
         const data = await clonedResponse.json();
         log("[Webhook] Parsed JSON response");
+        if (Array.isArray(data)) {
+          return new Response(data[0].output);
+        }
         // Successfully parsed JSON - return it
         return new Response(
           data.output || data.message || JSON.stringify(data)
