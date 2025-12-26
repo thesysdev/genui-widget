@@ -41,7 +41,19 @@ function ChatWithPersistence({
   provider: ChatProvider;
   onSessionIdChange: (sessionId: string | null) => void;
 }) {
-  const formFactor = config.mode === "sidepanel" ? "side-panel" : "full-page";
+  // Resolve formFactor: prefer new formFactor, fallback to legacy mode
+  const resolveFormFactor = (): "full-page" | "side-panel" | "bottom-tray" => {
+    if (config.formFactor) {
+      return config.formFactor;
+    }
+    // Legacy mode support
+    if (config.mode === "sidepanel") {
+      return "side-panel";
+    }
+    return "full-page";
+  };
+
+  const formFactor = resolveFormFactor();
 
   /**
    * Wrap an async function with error boundary handling
@@ -240,14 +252,30 @@ function ChatWithPersistence({
     },
   });
 
-  return createElement(C1Chat, {
+  // Build C1Chat props based on formFactor
+  const c1ChatProps: Record<string, unknown> = {
     threadManager,
     threadListManager,
     theme: config.theme,
     agentName: config.agentName || "Assistant",
     logoUrl: config.logoUrl,
     formFactor,
-  });
+  };
+
+  // Add bottom-tray specific props when applicable
+  if (formFactor === "bottom-tray" && config.bottomTray) {
+    if (config.bottomTray.isOpen !== undefined) {
+      c1ChatProps.isOpen = config.bottomTray.isOpen;
+    }
+    if (config.bottomTray.onOpenChange) {
+      c1ChatProps.onOpenChange = config.bottomTray.onOpenChange;
+    }
+    if (config.bottomTray.defaultOpen !== undefined) {
+      c1ChatProps.defaultOpen = config.bottomTray.defaultOpen;
+    }
+  }
+
+  return createElement(C1Chat, c1ChatProps);
 }
 
 /**
@@ -354,4 +382,10 @@ export function createChat(config: ChatConfig): ChatInstance {
 }
 
 // Export types
-export type { ChatConfig, ChatInstance, N8NConfig } from "./types";
+export type {
+  ChatConfig,
+  ChatInstance,
+  ChatFormFactor,
+  BottomTrayOptions,
+  N8NConfig,
+} from "./types";
