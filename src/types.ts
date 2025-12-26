@@ -44,6 +44,31 @@ export interface N8NConfig {
 }
 
 /**
+ * Form factor for the chat widget layout
+ */
+export type ChatFormFactor = "full-page" | "side-panel" | "bottom-tray";
+
+/**
+ * Bottom tray specific configuration options
+ */
+export interface BottomTrayOptions {
+  /**
+   * Control the open state of the bottom tray (controlled mode)
+   */
+  isOpen?: boolean;
+
+  /**
+   * Callback when bottom tray open state changes
+   */
+  onOpenChange?: (isOpen: boolean) => void;
+
+  /**
+   * Default open state for bottom tray (uncontrolled mode)
+   */
+  defaultOpen?: boolean;
+}
+
+/**
  * Configuration options for the chat widget
  */
 export interface ChatConfig {
@@ -89,9 +114,22 @@ export interface ChatConfig {
   logoUrl?: string;
 
   /**
+   * Form factor for the chat widget layout
+   * - "full-page": Takes up the entire viewport (default)
+   * - "side-panel": Appears as a side panel on the right
+   * - "bottom-tray": Appears as a collapsible tray at the bottom
+   * @default "full-page"
+   */
+  formFactor?: ChatFormFactor;
+
+  /**
+   * Bottom tray specific options (only used when formFactor is "bottom-tray")
+   */
+  bottomTray?: BottomTrayOptions;
+
+  /**
    * Display mode for the chat widget
-   * - "fullscreen": Takes up the entire viewport
-   * - "sidepanel": Appears as a side panel on the right
+   * @deprecated Use `formFactor` instead. "fullscreen" maps to "full-page", "sidepanel" maps to "side-panel"
    * @default "fullscreen"
    */
   mode?: "fullscreen" | "sidepanel";
