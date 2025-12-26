@@ -6,7 +6,7 @@ An embeddable chat widget that lets your AI chatbots render rich, interactive UI
 
 ## Features
 
-- 🎨 **Beautiful UI** - Clean, fullscreen chat interface
+- 🎨 **Beautiful UI** - Clean, modern chat interface
 - 🚀 **Easy Integration** - Single script tag or npm package
 - 💬 **Session Management** - Automatic session handling with persistent threads
 - 💾 **Flexible Storage** - localStorage, LangGraph-managed, or in-memory
@@ -15,6 +15,7 @@ An embeddable chat widget that lets your AI chatbots render rich, interactive UI
 - 📱 **Responsive** - Works perfectly on mobile and desktop
 - 🔌 **Multi-Provider** - LangGraph, n8n, Make.com, or custom webhooks
 - 🌊 **Streaming Support** - Real-time streaming responses from your backend
+- 📐 **Multiple Layouts** - Full-page, side panel, or bottom tray form factors
 
 ## Quick Start
 
@@ -116,7 +117,7 @@ const chat = createChat({
   logoUrl: "https://example.com/logo.png", // Logo image URL
   theme: { mode: "light" }, // 'light' or 'dark'
   storageType: "langgraph", // 'none', 'localstorage', or 'langgraph'
-  mode: "fullscreen", // 'fullscreen' or 'sidepanel'
+  formFactor: "full-page", // 'full-page', 'side-panel', or 'bottom-tray'
   enableDebugLogging: false, // Enable console debug logging
 
   // Optional: Callbacks
@@ -330,16 +331,56 @@ Controls chat history persistence:
 - `'localstorage'` - Messages are saved to browser localStorage, persist across sessions
 - `'langgraph'` - Uses LangGraph's server-side thread management (requires `langgraph` provider)
 
-### mode (optional)
+### formFactor (optional)
 
 ```typescript
-mode?: 'fullscreen' | 'sidepanel';  // Default: 'fullscreen'
+formFactor?: 'full-page' | 'side-panel' | 'bottom-tray';  // Default: 'full-page'
 ```
 
-Controls the display mode:
+Controls the layout form factor:
 
-- `'fullscreen'` - Takes up the entire viewport
-- `'sidepanel'` - Displays as a side panel (widget style)
+- `'full-page'` - Takes up the entire viewport
+- `'side-panel'` - Displays as a side panel on the right
+- `'bottom-tray'` - Appears as a collapsible tray at the bottom of the screen
+
+> **Note:** The `mode` property is deprecated. Use `formFactor` instead (`'fullscreen'` → `'full-page'`, `'sidepanel'` → `'side-panel'`).
+
+### bottomTray (optional)
+
+```typescript
+bottomTray?: {
+  // Control the open state of the bottom tray (controlled mode)
+  isOpen?: boolean;
+
+  // Callback when bottom tray open state changes
+  onOpenChange?: (isOpen: boolean) => void;
+
+  // Default open state for bottom tray (uncontrolled mode)
+  defaultOpen?: boolean;
+}
+```
+
+Configuration options specific to the `bottom-tray` form factor. Only used when `formFactor` is set to `'bottom-tray'`.
+
+**Example usage:**
+
+```javascript
+createChat({
+  n8n: { webhookUrl: "YOUR_WEBHOOK_URL" },
+  formFactor: "bottom-tray",
+  bottomTray: {
+    defaultOpen: false, // Start collapsed
+    onOpenChange: (isOpen) => {
+      console.log("Tray is now:", isOpen ? "open" : "closed");
+    },
+  },
+});
+```
+
+**Controlled vs Uncontrolled mode:**
+
+- **Uncontrolled:** Use `defaultOpen` to set initial state, let the widget manage it
+- **Controlled:** Use `isOpen` and `onOpenChange` to fully control the tray state externally
 
 ### onSessionStart (optional)
 
