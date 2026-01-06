@@ -1,6 +1,6 @@
 {
   "name": "genui-widget",
-  "version": "0.6.1",
+  "version": "0.6.2",
   "type": "module",
   "description": "An embeddable chat widget that lets your AI chatbots render rich, interactive UI like buttons, forms, charts, cards and more instead of plain text. Works out of the box with LangGraph/LangChain and n8n.",
   "main": "./dist/genui-widget.umd.js",

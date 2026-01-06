@@ -371,8 +371,10 @@ export function createChat(config: ChatConfig): ChatInstance {
     },
 
     destroy: () => {
+      if (!container.isConnected) return; // Already destroyed
       root.unmount();
       container.remove();
+      delete window.__THESYS_CHAT__;
     },
 
     getSessionId: () => currentSessionId || "",
