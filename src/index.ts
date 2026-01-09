@@ -11,7 +11,11 @@ import "@crayonai/react-ui/styles/index.css";
 import type { ChatConfig, ChatInstance } from "./types";
 import { createStorageAdapter, LangGraphStorageAdapter } from "./storage";
 import type { StorageAdapter } from "./storage";
-import { createChatProvider, type ChatProvider } from "./providers";
+import {
+  createChatProvider,
+  N8NProvider,
+  type ChatProvider,
+} from "./providers";
 import { log, handleError, normalizeError } from "./utils/logger";
 import "./styles/widget.css";
 
@@ -165,6 +169,7 @@ function ChatWithPersistence({
       }
 
       const isLangGraph = storage instanceof LangGraphStorageAdapter;
+      const isN8N = provider instanceof N8NProvider;
 
       // Save user messages (skip for LangGraph - messages are persisted via runs)
       if (!isLangGraph) {
@@ -188,17 +193,12 @@ function ChatWithPersistence({
       );
       const response = await sendMessage();
 
-      // For LangGraph, messages are automatically persisted by the run
-      // Just return the response directly
-      if (isLangGraph) {
-        return response;
-      }
-
-      // For other storage types, wrap stream to save assistant message when complete
+      // Wrap stream to check for thesys=true and optionally save messages
       if (response.body) {
         const reader = response.body.getReader();
         const decoder = new TextDecoder();
         let fullContent = "";
+        let isContentThesysChunkPresent = false;
 
         const wrappedStream = new ReadableStream({
           async start(controller) {
@@ -209,7 +209,35 @@ function ChatWithPersistence({
 
                 const text = decoder.decode(value, { stream: true });
                 fullContent += text;
+
+                // Check if response body contains thesys=true
+                const regex = new RegExp(/thesys=\\?"true\\?"/);
+                if (!isContentThesysChunkPresent && regex.test(fullContent)) {
+                  isContentThesysChunkPresent = true;
+                }
+
                 controller.enqueue(value);
+              }
+
+              if (!isContentThesysChunkPresent) {
+                console.log("fullContent", fullContent);
+                const errorDetails =
+                  "Widget received invalid response format. " +
+                  (isN8N
+                    ? "Please follow the integration steps in www.thesys.dev/n8n"
+                    : "Please check the documentation for integration");
+                const ERROR_MESSAGE = {
+                  message: "INVALID_RESPONSE_FORMAT",
+                  details: errorDetails,
+                };
+                throw new Error(JSON.stringify(ERROR_MESSAGE));
+              }
+
+              // For LangGraph, messages are automatically persisted by the run
+              // Skip saving for LangGraph
+              if (isLangGraph) {
+                controller.close();
+                return;
               }
 
               // Save complete thread after stream ends
@@ -237,6 +265,8 @@ function ChatWithPersistence({
 
               controller.close();
             } catch (error) {
+              // Handle streaming errors (e.g., "No thesys=true chunk found")
+              handleError(error, "[Provider] Streaming failed", config.onError);
               controller.error(error);
             }
           },
