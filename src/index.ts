@@ -1,5 +1,5 @@
 import { createRoot } from "react-dom/client";
-import { createElement } from "react";
+import { createElement, useEffect } from "react";
 import {
   C1Chat,
   useThreadManager,
@@ -8,7 +8,7 @@ import {
 } from "@thesysai/genui-sdk";
 import type { Thread, UserMessage } from "@crayonai/react-core";
 import "@crayonai/react-ui/styles/index.css";
-import type { ChatConfig, ChatInstance } from "./types";
+import type { ChatConfig, ChatInstance, QuickSuggestion } from "./types";
 import { createStorageAdapter, LangGraphStorageAdapter } from "./storage";
 import type { StorageAdapter } from "./storage";
 import {
@@ -18,6 +18,249 @@ import {
 } from "./providers";
 import { log, handleError, normalizeError } from "./utils/logger";
 import "./styles/widget.css";
+
+/**
+ * Setup quick suggestions above the composer input
+ * Injects a suggestion div that appears when the input is empty
+ */
+function setupQuickSuggestions(
+  container: HTMLElement,
+  suggestions: QuickSuggestion[]
+): () => void {
+  let suggestionContainer: HTMLDivElement | null = null;
+  let observer: MutationObserver | null = null;
+  let inputObserver: MutationObserver | null = null;
+  let conversationStarted = false;
+  let lastMessageSentTime = 0;
+
+  // Support all form factors: full-page, side-panel, and bottom-tray
+  const COMPOSER_SELECTOR = [
+    ".crayon-shell-thread-composer__input-wrapper",
+    ".crayon-bottom-tray-thread-composer__input-wrapper",
+    ".crayon-copilot-shell-thread-composer__input-wrapper",
+  ].join(", ");
+  const INPUT_SELECTOR =
+    '[contenteditable="true"], textarea, input[type="text"]';
+
+  function createSuggestionElement(): HTMLDivElement {
+    const wrapper = document.createElement("div");
+    wrapper.className = "thesys-quick-suggestions";
+
+    suggestions.forEach((suggestion) => {
+      const chip = document.createElement("button");
+      chip.className = "thesys-quick-suggestion-chip";
+      chip.type = "button";
+
+      if (suggestion.icon) {
+        const icon = document.createElement("span");
+        icon.className = "thesys-quick-suggestion-icon";
+        icon.textContent = suggestion.icon;
+        chip.appendChild(icon);
+      }
+
+      const text = document.createElement("span");
+      text.className = "thesys-quick-suggestion-text";
+      text.textContent = suggestion.text;
+      chip.appendChild(text);
+
+      chip.addEventListener("click", () => {
+        const composerWrapper = container.querySelector(COMPOSER_SELECTOR);
+        if (!composerWrapper) return;
+
+        const input = composerWrapper.querySelector(INPUT_SELECTOR) as
+          | HTMLElement
+          | HTMLInputElement
+          | HTMLTextAreaElement
+          | null;
+        if (!input) return;
+
+        // Set the text in the input using native setter to trigger React state updates
+        if (
+          input instanceof HTMLInputElement ||
+          input instanceof HTMLTextAreaElement
+        ) {
+          // Use native setter to properly trigger React's onChange
+          const nativeInputValueSetter =
+            input instanceof HTMLTextAreaElement
+              ? Object.getOwnPropertyDescriptor(
+                  HTMLTextAreaElement.prototype,
+                  "value"
+                )?.set
+              : Object.getOwnPropertyDescriptor(
+                  HTMLInputElement.prototype,
+                  "value"
+                )?.set;
+
+          if (nativeInputValueSetter) {
+            nativeInputValueSetter.call(input, suggestion.text);
+          } else {
+            input.value = suggestion.text;
+          }
+
+          // Dispatch input event to notify React
+          input.dispatchEvent(new Event("input", { bubbles: true }));
+        } else if (input.isContentEditable) {
+          input.textContent = suggestion.text;
+          input.dispatchEvent(
+            new InputEvent("input", { bubbles: true, inputType: "insertText" })
+          );
+          // Move cursor to end
+          const range = document.createRange();
+          const sel = window.getSelection();
+          range.selectNodeContents(input);
+          range.collapse(false);
+          sel?.removeAllRanges();
+          sel?.addRange(range);
+        }
+
+        input.focus();
+
+        // Mark conversation as started and hide suggestions
+        conversationStarted = true;
+        lastMessageSentTime = Date.now();
+        updateVisibility();
+
+        // Auto-submit after small delay to ensure React state is updated
+        setTimeout(() => {
+          // Find and click the submit button (sibling of input wrapper)
+          const submitButton = composerWrapper.querySelector(
+            'button[type="submit"], button:last-child'
+          ) as HTMLButtonElement | null;
+          if (submitButton && !submitButton.disabled) {
+            submitButton.click();
+          }
+        }, 50);
+      });
+
+      wrapper.appendChild(chip);
+    });
+
+    return wrapper;
+  }
+
+  function getInputValue(): string {
+    const composerWrapper = container.querySelector(COMPOSER_SELECTOR);
+    if (!composerWrapper) return "";
+
+    const input = composerWrapper.querySelector(INPUT_SELECTOR) as
+      | HTMLElement
+      | HTMLInputElement
+      | HTMLTextAreaElement
+      | null;
+    if (!input) return "";
+
+    if (
+      input instanceof HTMLInputElement ||
+      input instanceof HTMLTextAreaElement
+    ) {
+      return input.value.trim();
+    } else if (input.isContentEditable) {
+      return (input.textContent || "").trim();
+    }
+    return "";
+  }
+
+  function hasConversationStarted(): boolean {
+    // If flag is set and was recently set (within 3 seconds), trust the flag
+    // This prevents race condition where DOM hasn't updated yet
+    const timeSinceLastMessage = Date.now() - lastMessageSentTime;
+    if (conversationStarted && timeSinceLastMessage < 3000) {
+      return true;
+    }
+
+    // Check DOM for user messages
+    const messageElements = container.querySelectorAll(
+      ".crayon-shell-thread-message-user"
+    );
+
+    // If there are messages in DOM, conversation has started
+    if (messageElements.length > 0) {
+      conversationStarted = true;
+      return true;
+    }
+
+    // If no messages in DOM and enough time has passed, reset the flag
+    // This handles the "New Chat" case
+    if (
+      conversationStarted &&
+      messageElements.length === 0 &&
+      timeSinceLastMessage >= 3000
+    ) {
+      conversationStarted = false;
+    }
+
+    return conversationStarted;
+  }
+
+  function updateVisibility(): void {
+    if (!suggestionContainer) return;
+    const isEmpty = getInputValue() === "";
+    const conversationStarted = hasConversationStarted();
+    // Only show suggestions when input is empty AND conversation hasn't started
+    suggestionContainer.style.display =
+      isEmpty && !conversationStarted ? "flex" : "none";
+  }
+
+  function injectSuggestions(): void {
+    const composerWrapper = container.querySelector(COMPOSER_SELECTOR);
+    if (
+      !composerWrapper ||
+      suggestionContainer?.parentElement === composerWrapper.parentElement
+    ) {
+      return;
+    }
+
+    // Remove existing if any
+    suggestionContainer?.remove();
+
+    // Create and inject
+    suggestionContainer = createSuggestionElement();
+    composerWrapper.parentElement?.insertBefore(
+      suggestionContainer,
+      composerWrapper
+    );
+
+    // Watch input for changes
+    const input = composerWrapper.querySelector(
+      INPUT_SELECTOR
+    ) as HTMLElement | null;
+    if (input) {
+      input.addEventListener("input", updateVisibility);
+      input.addEventListener("keyup", updateVisibility);
+
+      // Also observe for DOM changes in contenteditable
+      if (input.isContentEditable) {
+        inputObserver?.disconnect();
+        inputObserver = new MutationObserver(updateVisibility);
+        inputObserver.observe(input, {
+          childList: true,
+          subtree: true,
+          characterData: true,
+        });
+      }
+    }
+
+    updateVisibility();
+  }
+
+  // Initial injection attempt
+  injectSuggestions();
+
+  // Watch for composer to appear/change and messages to be added
+  observer = new MutationObserver(() => {
+    injectSuggestions();
+    // Also update visibility in case messages were added
+    updateVisibility();
+  });
+  observer.observe(container, { childList: true, subtree: true });
+
+  // Return cleanup function
+  return () => {
+    observer?.disconnect();
+    inputObserver?.disconnect();
+    suggestionContainer?.remove();
+  };
+}
 
 /**
  * Helper function to generate thread title from first user message
@@ -305,6 +548,20 @@ function ChatWithPersistence({
     }
   }
 
+  // Setup quick suggestions if configured
+  useEffect(() => {
+    if (!config.quickSuggestions || config.quickSuggestions.length === 0) {
+      return;
+    }
+
+    // Find the container where C1Chat is rendered
+    const container = document.getElementById("thesys-chat-root");
+    if (!container) return;
+
+    const cleanup = setupQuickSuggestions(container, config.quickSuggestions);
+    return cleanup;
+  }, [config.quickSuggestions]);
+
   return createElement(C1Chat, c1ChatProps);
 }
 
@@ -420,4 +677,5 @@ export type {
   ChatFormFactor,
   BottomTrayOptions,
   N8NConfig,
+  QuickSuggestion,
 } from "./types";

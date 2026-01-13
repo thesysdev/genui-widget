@@ -69,6 +69,21 @@ export interface BottomTrayOptions {
 }
 
 /**
+ * Quick suggestion displayed above the composer input
+ */
+export interface QuickSuggestion {
+  /**
+   * The text to display and copy into the input on click
+   */
+  text: string;
+
+  /**
+   * Optional emoji or icon character to display before the text
+   */
+  icon?: string;
+}
+
+/**
  * Configuration options for the chat widget
  */
 export interface ChatConfig {
@@ -147,6 +162,13 @@ export interface ChatConfig {
    * @default false
    */
   enableDebugLogging?: boolean;
+
+  /**
+   * Quick suggestions to display above the composer input
+   * Only shown when the input is empty
+   * Clicking a suggestion copies its text into the input
+   */
+  quickSuggestions?: QuickSuggestion[];
 }
 
 /**
