@@ -30,6 +30,8 @@ function setupQuickSuggestions(
   let suggestionContainer: HTMLDivElement | null = null;
   let observer: MutationObserver | null = null;
   let inputObserver: MutationObserver | null = null;
+  let conversationStarted = false;
+  let lastMessageSentTime = 0;
 
   // Support all form factors: full-page, side-panel, and bottom-tray
   const COMPOSER_SELECTOR = [
@@ -112,6 +114,10 @@ function setupQuickSuggestions(
         }
 
         input.focus();
+
+        // Mark conversation as started and hide suggestions
+        conversationStarted = true;
+        lastMessageSentTime = Date.now();
         updateVisibility();
 
         // Auto-submit after small delay to ensure React state is updated
@@ -154,10 +160,45 @@ function setupQuickSuggestions(
     return "";
   }
 
+  function hasConversationStarted(): boolean {
+    // If flag is set and was recently set (within 3 seconds), trust the flag
+    // This prevents race condition where DOM hasn't updated yet
+    const timeSinceLastMessage = Date.now() - lastMessageSentTime;
+    if (conversationStarted && timeSinceLastMessage < 3000) {
+      return true;
+    }
+
+    // Check DOM for user messages
+    const messageElements = container.querySelectorAll(
+      ".crayon-shell-thread-message-user"
+    );
+
+    // If there are messages in DOM, conversation has started
+    if (messageElements.length > 0) {
+      conversationStarted = true;
+      return true;
+    }
+
+    // If no messages in DOM and enough time has passed, reset the flag
+    // This handles the "New Chat" case
+    if (
+      conversationStarted &&
+      messageElements.length === 0 &&
+      timeSinceLastMessage >= 3000
+    ) {
+      conversationStarted = false;
+    }
+
+    return conversationStarted;
+  }
+
   function updateVisibility(): void {
     if (!suggestionContainer) return;
     const isEmpty = getInputValue() === "";
-    suggestionContainer.style.display = isEmpty ? "flex" : "none";
+    const conversationStarted = hasConversationStarted();
+    // Only show suggestions when input is empty AND conversation hasn't started
+    suggestionContainer.style.display =
+      isEmpty && !conversationStarted ? "flex" : "none";
   }
 
   function injectSuggestions(): void {
@@ -205,9 +246,11 @@ function setupQuickSuggestions(
   // Initial injection attempt
   injectSuggestions();
 
-  // Watch for composer to appear/change
+  // Watch for composer to appear/change and messages to be added
   observer = new MutationObserver(() => {
     injectSuggestions();
+    // Also update visibility in case messages were added
+    updateVisibility();
   });
   observer.observe(container, { childList: true, subtree: true });
 
