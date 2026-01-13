@@ -72,12 +72,30 @@ function setupQuickSuggestions(
           | null;
         if (!input) return;
 
-        // Set the text in the input
+        // Set the text in the input using native setter to trigger React state updates
         if (
           input instanceof HTMLInputElement ||
           input instanceof HTMLTextAreaElement
         ) {
-          input.value = suggestion.text;
+          // Use native setter to properly trigger React's onChange
+          const nativeInputValueSetter =
+            input instanceof HTMLTextAreaElement
+              ? Object.getOwnPropertyDescriptor(
+                  HTMLTextAreaElement.prototype,
+                  "value"
+                )?.set
+              : Object.getOwnPropertyDescriptor(
+                  HTMLInputElement.prototype,
+                  "value"
+                )?.set;
+
+          if (nativeInputValueSetter) {
+            nativeInputValueSetter.call(input, suggestion.text);
+          } else {
+            input.value = suggestion.text;
+          }
+
+          // Dispatch input event to notify React
           input.dispatchEvent(new Event("input", { bubbles: true }));
         } else if (input.isContentEditable) {
           input.textContent = suggestion.text;
@@ -95,6 +113,17 @@ function setupQuickSuggestions(
 
         input.focus();
         updateVisibility();
+
+        // Auto-submit after small delay to ensure React state is updated
+        setTimeout(() => {
+          // Find and click the submit button (sibling of input wrapper)
+          const submitButton = composerWrapper.querySelector(
+            'button[type="submit"], button:last-child'
+          ) as HTMLButtonElement | null;
+          if (submitButton && !submitButton.disabled) {
+            submitButton.click();
+          }
+        }, 50);
       });
 
       wrapper.appendChild(chip);
