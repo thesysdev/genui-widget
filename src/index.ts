@@ -1,5 +1,5 @@
 import { createRoot } from "react-dom/client";
-import { createElement } from "react";
+import { createElement, useEffect } from "react";
 import {
   C1Chat,
   useThreadManager,
@@ -8,7 +8,7 @@ import {
 } from "@thesysai/genui-sdk";
 import type { Thread, UserMessage } from "@crayonai/react-core";
 import "@crayonai/react-ui/styles/index.css";
-import type { ChatConfig, ChatInstance } from "./types";
+import type { ChatConfig, ChatInstance, QuickSuggestion } from "./types";
 import { createStorageAdapter, LangGraphStorageAdapter } from "./storage";
 import type { StorageAdapter } from "./storage";
 import {
@@ -18,6 +18,172 @@ import {
 } from "./providers";
 import { log, handleError, normalizeError } from "./utils/logger";
 import "./styles/widget.css";
+
+/**
+ * Setup quick suggestions above the composer input
+ * Injects a suggestion div that appears when the input is empty
+ */
+function setupQuickSuggestions(
+  container: HTMLElement,
+  suggestions: QuickSuggestion[]
+): () => void {
+  let suggestionContainer: HTMLDivElement | null = null;
+  let observer: MutationObserver | null = null;
+  let inputObserver: MutationObserver | null = null;
+
+  const COMPOSER_SELECTOR = ".crayon-shell-thread-composer__input-wrapper";
+  const INPUT_SELECTOR =
+    '[contenteditable="true"], textarea, input[type="text"]';
+
+  function createSuggestionElement(): HTMLDivElement {
+    const wrapper = document.createElement("div");
+    wrapper.className = "thesys-quick-suggestions";
+
+    suggestions.forEach((suggestion) => {
+      const chip = document.createElement("button");
+      chip.className = "thesys-quick-suggestion-chip";
+      chip.type = "button";
+
+      if (suggestion.icon) {
+        const icon = document.createElement("span");
+        icon.className = "thesys-quick-suggestion-icon";
+        icon.textContent = suggestion.icon;
+        chip.appendChild(icon);
+      }
+
+      const text = document.createElement("span");
+      text.className = "thesys-quick-suggestion-text";
+      text.textContent = suggestion.text;
+      chip.appendChild(text);
+
+      chip.addEventListener("click", () => {
+        const composerWrapper = container.querySelector(COMPOSER_SELECTOR);
+        if (!composerWrapper) return;
+
+        const input = composerWrapper.querySelector(INPUT_SELECTOR) as
+          | HTMLElement
+          | HTMLInputElement
+          | HTMLTextAreaElement
+          | null;
+        if (!input) return;
+
+        // Set the text in the input
+        if (
+          input instanceof HTMLInputElement ||
+          input instanceof HTMLTextAreaElement
+        ) {
+          input.value = suggestion.text;
+          input.dispatchEvent(new Event("input", { bubbles: true }));
+        } else if (input.isContentEditable) {
+          input.textContent = suggestion.text;
+          input.dispatchEvent(
+            new InputEvent("input", { bubbles: true, inputType: "insertText" })
+          );
+          // Move cursor to end
+          const range = document.createRange();
+          const sel = window.getSelection();
+          range.selectNodeContents(input);
+          range.collapse(false);
+          sel?.removeAllRanges();
+          sel?.addRange(range);
+        }
+
+        input.focus();
+        updateVisibility();
+      });
+
+      wrapper.appendChild(chip);
+    });
+
+    return wrapper;
+  }
+
+  function getInputValue(): string {
+    const composerWrapper = container.querySelector(COMPOSER_SELECTOR);
+    if (!composerWrapper) return "";
+
+    const input = composerWrapper.querySelector(INPUT_SELECTOR) as
+      | HTMLElement
+      | HTMLInputElement
+      | HTMLTextAreaElement
+      | null;
+    if (!input) return "";
+
+    if (
+      input instanceof HTMLInputElement ||
+      input instanceof HTMLTextAreaElement
+    ) {
+      return input.value.trim();
+    } else if (input.isContentEditable) {
+      return (input.textContent || "").trim();
+    }
+    return "";
+  }
+
+  function updateVisibility(): void {
+    if (!suggestionContainer) return;
+    const isEmpty = getInputValue() === "";
+    suggestionContainer.style.display = isEmpty ? "flex" : "none";
+  }
+
+  function injectSuggestions(): void {
+    const composerWrapper = container.querySelector(COMPOSER_SELECTOR);
+    if (
+      !composerWrapper ||
+      suggestionContainer?.parentElement === composerWrapper.parentElement
+    ) {
+      return;
+    }
+
+    // Remove existing if any
+    suggestionContainer?.remove();
+
+    // Create and inject
+    suggestionContainer = createSuggestionElement();
+    composerWrapper.parentElement?.insertBefore(
+      suggestionContainer,
+      composerWrapper
+    );
+
+    // Watch input for changes
+    const input = composerWrapper.querySelector(
+      INPUT_SELECTOR
+    ) as HTMLElement | null;
+    if (input) {
+      input.addEventListener("input", updateVisibility);
+      input.addEventListener("keyup", updateVisibility);
+
+      // Also observe for DOM changes in contenteditable
+      if (input.isContentEditable) {
+        inputObserver?.disconnect();
+        inputObserver = new MutationObserver(updateVisibility);
+        inputObserver.observe(input, {
+          childList: true,
+          subtree: true,
+          characterData: true,
+        });
+      }
+    }
+
+    updateVisibility();
+  }
+
+  // Initial injection attempt
+  injectSuggestions();
+
+  // Watch for composer to appear/change
+  observer = new MutationObserver(() => {
+    injectSuggestions();
+  });
+  observer.observe(container, { childList: true, subtree: true });
+
+  // Return cleanup function
+  return () => {
+    observer?.disconnect();
+    inputObserver?.disconnect();
+    suggestionContainer?.remove();
+  };
+}
 
 /**
  * Helper function to generate thread title from first user message
@@ -305,6 +471,20 @@ function ChatWithPersistence({
     }
   }
 
+  // Setup quick suggestions if configured
+  useEffect(() => {
+    if (!config.quickSuggestions || config.quickSuggestions.length === 0) {
+      return;
+    }
+
+    // Find the container where C1Chat is rendered
+    const container = document.getElementById("thesys-chat-root");
+    if (!container) return;
+
+    const cleanup = setupQuickSuggestions(container, config.quickSuggestions);
+    return cleanup;
+  }, [config.quickSuggestions]);
+
   return createElement(C1Chat, c1ChatProps);
 }
 
@@ -420,4 +600,5 @@ export type {
   ChatFormFactor,
   BottomTrayOptions,
   N8NConfig,
+  QuickSuggestion,
 } from "./types";
