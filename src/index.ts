@@ -31,7 +31,12 @@ function setupQuickSuggestions(
   let observer: MutationObserver | null = null;
   let inputObserver: MutationObserver | null = null;
 
-  const COMPOSER_SELECTOR = ".crayon-shell-thread-composer__input-wrapper";
+  // Support all form factors: full-page, side-panel, and bottom-tray
+  const COMPOSER_SELECTOR = [
+    ".crayon-shell-thread-composer__input-wrapper",
+    ".crayon-bottom-tray-thread-composer__input-wrapper",
+    ".crayon-copilot-shell-thread-composer__input-wrapper",
+  ].join(", ");
   const INPUT_SELECTOR =
     '[contenteditable="true"], textarea, input[type="text"]';
 
