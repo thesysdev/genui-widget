@@ -289,6 +289,8 @@ function ChatWithPersistence({
     theme: config.theme,
     agentName: config.agentName || "Assistant",
     logoUrl: config.logoUrl,
+    welcomeMessage: config.welcomeMessage,
+    conversationStarters: config.conversationStarters,
     formFactor,
   };
 

@@ -1,3 +1,8 @@
+import type {
+  WelcomeMessageConfig,
+  ConversationStartersConfig,
+} from "@thesysai/genui-sdk";
+
 /**
  * Storage type for persisting chat data
  */
@@ -112,6 +117,35 @@ export interface ChatConfig {
    * URL to the logo image to display in the chat
    */
   logoUrl?: string;
+
+  /**
+   * Welcome message shown when the thread is empty.
+   * Can be a config object with title, description, and image,
+   * or a custom React component.
+   *
+   * @example
+   * welcomeMessage: {
+   *   title: "Hi, I'm Assistant",
+   *   description: "I can help you with your questions.",
+   *   image: { url: "/logo.png" },
+   * }
+   */
+  welcomeMessage?: WelcomeMessageConfig;
+
+  /**
+   * Conversation starters shown when the thread is empty.
+   * Clickable prompts that help users begin a conversation.
+   *
+   * @example
+   * conversationStarters: {
+   *   variant: "short", // "short" for pill buttons, "long" for list items
+   *   options: [
+   *     { displayText: "Help me get started", prompt: "Help me get started" },
+   *     { displayText: "What can you do?", prompt: "What can you do?" },
+   *   ],
+   * }
+   */
+  conversationStarters?: ConversationStartersConfig;
 
   /**
    * Form factor for the chat widget layout

@@ -1,6 +1,6 @@
 {
   "name": "genui-widget",
-  "version": "0.6.3",
+  "version": "0.7.3",
   "type": "module",
   "description": "An embeddable chat widget that lets your AI chatbots render rich, interactive UI like buttons, forms, charts, cards and more instead of plain text. Works out of the box with LangGraph/LangChain and n8n.",
   "main": "./dist/genui-widget.umd.js",
@@ -23,9 +23,9 @@
     "lint": "eslint src"
   },
   "dependencies": {
-    "@crayonai/react-ui": "^0.9.9",
+    "@crayonai/react-ui": "^0.9.13",
     "@crayonai/stream": "^0.6.4",
-    "@thesysai/genui-sdk": "^0.7.14"
+    "@thesysai/genui-sdk": "^0.7.16"
   },
   "peerDependencies": {
     "react": "^18.0.0 || ^19.0.0",
