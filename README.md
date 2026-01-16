@@ -16,6 +16,8 @@ An embeddable chat widget that lets your AI chatbots render rich, interactive UI
 - 🔌 **Multi-Provider** - LangGraph, n8n, Make.com, or custom webhooks
 - 🌊 **Streaming Support** - Real-time streaming responses from your backend
 - 📐 **Multiple Layouts** - Full-page, side panel, or bottom tray form factors
+- 👋 **Welcome Message** - Customizable greeting when starting a new conversation
+- 💡 **Conversation Starters** - Pre-defined prompts to help users get started
 
 ## Quick Start
 
@@ -119,6 +121,22 @@ const chat = createChat({
   storageType: "langgraph", // 'none', 'localstorage', or 'langgraph'
   formFactor: "full-page", // 'full-page', 'side-panel', or 'bottom-tray'
   enableDebugLogging: false, // Enable console debug logging
+
+  // Optional: Welcome message shown when thread is empty
+  welcomeMessage: {
+    title: "Hi, I'm Assistant",
+    description: "I can help you with your questions.",
+    image: { url: "https://example.com/logo.png" },
+  },
+
+  // Optional: Conversation starters
+  conversationStarters: {
+    variant: "short", // 'short' for pill buttons, 'long' for list items
+    options: [
+      { displayText: "Help me get started", prompt: "Help me get started" },
+      { displayText: "What can you do?", prompt: "What can you do?" },
+    ],
+  },
 
   // Optional: Callbacks
   onSessionStart: (sessionId) => {
@@ -330,6 +348,62 @@ Controls chat history persistence:
 - `'none'` - Messages are kept in memory only, lost on page refresh
 - `'localstorage'` - Messages are saved to browser localStorage, persist across sessions
 - `'langgraph'` - Uses LangGraph's server-side thread management (requires `langgraph` provider)
+
+### welcomeMessage (optional)
+
+```typescript
+welcomeMessage?: {
+  title?: string;       // Main heading text
+  description?: string; // Subheading/description text
+  image?: { url: string }; // Optional logo/image
+} | React.ComponentType; // Or provide a custom component
+```
+
+Displayed when the thread is empty to greet users.
+
+**Example:**
+
+```javascript
+createChat({
+  n8n: { webhookUrl: "YOUR_WEBHOOK_URL" },
+  welcomeMessage: {
+    title: "Hi, I'm Assistant",
+    description: "I can help you with your questions.",
+    image: { url: "/logo.png" },
+  },
+});
+```
+
+### conversationStarters (optional)
+
+```typescript
+conversationStarters?: {
+  variant?: 'short' | 'long'; // 'short' = pill buttons, 'long' = list items
+  options: Array<{
+    displayText: string; // Text shown on the button
+    prompt: string;      // Message sent when clicked
+    icon?: React.ReactNode; // Optional icon
+  }>;
+}
+```
+
+Clickable prompts shown when the thread is empty to help users begin a conversation.
+
+**Example:**
+
+```javascript
+createChat({
+  n8n: { webhookUrl: "YOUR_WEBHOOK_URL" },
+  conversationStarters: {
+    variant: "short",
+    options: [
+      { displayText: "Help me get started", prompt: "Help me get started" },
+      { displayText: "What can you do?", prompt: "What can you do?" },
+      { displayText: "Show me examples", prompt: "Show me some examples" },
+    ],
+  },
+});
+```
 
 ### formFactor (optional)
 
